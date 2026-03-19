@@ -166,8 +166,8 @@ export default function App() {
               <Database className="w-6 h-6 text-orange-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">MAXXIS RUBBER INDIA</h1>
-              <p className="text-sm text-slate-500 font-medium">Spec and raw material searcher規格和原料搜尋器</p>
+              <h1 className="text-lg md:text-2xl font-bold tracking-tight text-slate-900">MAXXIS RUBBER INDIA</h1>
+              <p className="text-sm text-slate-500 font-medium">Spec and raw material searcher</p>
             </div>
           </div>
 
@@ -206,7 +206,7 @@ export default function App() {
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                   <Layers className="w-5 h-5 text-orange-500" />
-                  <h2 className="text-lg font-bold tracking-tight text-slate-800">Raw Material Details for 原料詳情 "{query.toUpperCase()}"</h2>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-800">Raw Material Details for "{query.toUpperCase()}"</h2>
                 </div>
                 {result.recipe.length > 0 && (
                   <button
@@ -237,20 +237,43 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {result.recipe.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-orange-50/50 transition-colors group">
-                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-slate-800 align-top">
-                            {item.rubberName}
-                          </td>
-                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top">
-                            {item.name}
-                            <div className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap">{item.code}</div>
-                          </td>
-                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-orange-600 text-right align-top">
-                            {item.weight}
-                          </td>
-                        </tr>
-                      ))}
+                      {(() => {
+                        const rows = [];
+                        for (let i = 0; i < result.recipe.length; i++) {
+                          const item = result.recipe[i];
+                          let rowSpan = 1;
+                          const isFirst = i === 0 || result.recipe[i-1].rubberName !== item.rubberName;
+                          
+                          if (isFirst) {
+                            let j = i + 1;
+                            while (j < result.recipe.length && result.recipe[j].rubberName === item.rubberName) {
+                              rowSpan++;
+                              j++;
+                            }
+                          }
+
+                          rows.push(
+                            <tr key={i} className="hover:bg-orange-50/50 transition-colors group">
+                              {isFirst && (
+                                <td 
+                                  rowSpan={rowSpan} 
+                                  className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-slate-800 align-middle text-center border-r border-slate-100 bg-slate-50/30"
+                                >
+                                  {item.rubberName}
+                                </td>
+                              )}
+                              <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top">
+                                {item.name}
+                                <div className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap">{item.code}</div>
+                              </td>
+                              <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-orange-600 text-right align-top">
+                                {item.weight}
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return rows;
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -266,7 +289,7 @@ export default function App() {
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                   <Package className="w-5 h-5 text-orange-500" />
-                  <h2 className="text-lg font-bold tracking-tight text-slate-800">Compatible Tyre Specs 相容輪胎規格</h2>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-800">Compatible Tyre Specs </h2>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="bg-orange-100 px-3 py-1 rounded-full text-xs font-bold text-orange-700">
