@@ -225,33 +225,28 @@ export default function App() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
-                          Rubber Compound<br/><span className="text-[10px] font-normal text-slate-400">膠料名稱</span>
+                        <th className="py-2 px-2 md:px-4 text-[11px] md:text-xs uppercase tracking-wider text-slate-500 font-bold w-[30%]">
+                          Rubber Compound<br/><span className="text-[9px] md:text-[10px] font-normal text-slate-400">膠料名稱</span>
                         </th>
-                        <th className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
-                          Material Name<br/><span className="text-[10px] font-normal text-slate-400">原料名稱</span>
+                        <th className="py-2 px-2 md:px-4 text-[11px] md:text-xs uppercase tracking-wider text-slate-500 font-bold w-[45%] min-w-[110px]">
+                          Material<br/><span className="text-[9px] md:text-[10px] font-normal text-slate-400">原料名稱及代碼</span>
                         </th>
-                        <th className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
-                          Material Code<br/><span className="text-[10px] font-normal text-slate-400">原料代碼</span>
-                        </th>
-                        <th className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-bold text-right">
-                          Weight<br/><span className="text-[10px] font-normal text-slate-400">重量</span>
+                        <th className="py-2 px-2 md:px-4 text-[11px] md:text-xs uppercase tracking-wider text-slate-500 font-bold text-right w-[25%]">
+                          Weight<br/><span className="text-[9px] md:text-[10px] font-normal text-slate-400">重量</span>
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {result.recipe.map((item, idx) => (
                         <tr key={idx} className="hover:bg-orange-50/50 transition-colors group">
-                          <td className="py-4 px-4 text-sm font-bold text-slate-800">
+                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-slate-800 align-top">
                             {item.rubberName}
                           </td>
-                          <td className="py-4 px-4 text-sm font-medium text-slate-800">
+                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top">
                             {item.name}
+                            <div className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap">{item.code}</div>
                           </td>
-                          <td className="py-4 px-4 font-mono text-sm text-slate-500">
-                            {item.code}
-                          </td>
-                          <td className="py-4 px-4 text-sm font-bold text-orange-600 text-right">
+                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-orange-600 text-right align-top">
                             {item.weight}
                           </td>
                         </tr>
@@ -295,27 +290,22 @@ export default function App() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
-                          Material<br/><span className="text-[10px] font-normal text-slate-400">料號</span>
+                        <th className="py-2 px-2 md:px-4 text-[11px] md:text-xs uppercase tracking-wider text-slate-500 font-bold w-[40%] min-w-[110px]">
+                          Material<br/><span className="text-[9px] md:text-[10px] font-normal text-slate-400">替代文字及料號</span>
                         </th>
-                        <th className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
-                          Alternative Text<br/><span className="text-[10px] font-normal text-slate-400">替代文字</span>
-                        </th>
-                        <th className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
-                          Long Text (Tyre Spec)<br/><span className="text-[10px] font-normal text-slate-400">詳細規格</span>
+                        <th className="py-2 px-2 md:px-4 text-[11px] md:text-xs uppercase tracking-wider text-slate-500 font-bold w-[60%]">
+                          Long Text (Tyre Spec)<br/><span className="text-[9px] md:text-[10px] font-normal text-slate-400">詳細規格</span>
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {result.specs.map((spec, idx) => (
                         <tr key={idx} className="hover:bg-orange-50/50 transition-colors group">
-                          <td className="py-4 px-4 font-mono text-sm text-slate-500 whitespace-nowrap">
-                            {spec.material}
-                          </td>
-                          <td className="py-4 px-4 text-sm font-medium text-slate-800">
+                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top">
                             {spec.alternativeText}
+                            <div className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap">{spec.material}</div>
                           </td>
-                          <td className="py-4 px-4 text-sm text-slate-600">
+                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm text-slate-600 align-top">
                             {spec.longText}
                           </td>
                         </tr>
