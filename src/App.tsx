@@ -247,8 +247,21 @@ export default function App() {
                (t2 && allInvolvedCompounds.has(t2));
       });
       
+      // Deduplicate recipe items by rubberName + materialCode + name
+      // If the same material appears multiple times, we only keep the first occurrence
+      const uniqueRecipeMap = new Map<string, RecipeItem>();
+      recipe.forEach(item => {
+        const key = `${item.rubberName}|${item.code}|${item.name}`;
+        if (!uniqueRecipeMap.has(key)) {
+          uniqueRecipeMap.set(key, item);
+        }
+        // If key exists, we ignore subsequent entries as requested ("去除剩一項")
+      });
+      
+      const uniqueRecipes = Array.from(uniqueRecipeMap.values());
+
       // Sort recipes by rubber name to ensure grouping works in the table
-      const sortedRecipe = [...recipe].sort((a, b) => a.rubberName.localeCompare(b.rubberName));
+      const sortedRecipe = uniqueRecipes.sort((a, b) => a.rubberName.localeCompare(b.rubberName));
 
       setResult({
         recipe: sortedRecipe,
