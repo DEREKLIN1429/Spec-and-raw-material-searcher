@@ -19,15 +19,24 @@ export default function App() {
   const [result, setResult] = useState<{
     recipe: RecipeItem[];
     specs: SpecData[];
+    matchedCompounds: string[];
     hasSearched: boolean;
   }>({
     recipe: [],
     specs: [],
+    matchedCompounds: [],
     hasSearched: false
   });
 
   const [copiedRecipe, setCopiedRecipe] = useState(false);
   const [copiedSpecs, setCopiedSpecs] = useState(false);
+
+  const handleDoubleClick = (text: string) => {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+    setQuery(cleanText);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleCopyRecipe = async () => {
     if (!result.recipe.length || !recipeTableRef.current) return;
@@ -101,41 +110,84 @@ export default function App() {
     setError(null);
     
     try {
-      // Fetch recipe data dynamically for the searched rubber name
-      const recipe = await fetchRecipeData(q);
+      console.log('Query:', q);
 
-      // Find the SAP code from the rubber data to search the specs
-      const rubberMatch = rubberData.find(r => 
-        r.rubberName.toUpperCase().includes(q) || r.sapCode.toUpperCase().includes(q)
-      );
-      const searchSapCode = rubberMatch?.sapCode.toUpperCase() || q;
-
-      // Extract the first 4 digits from the query (e.g., "7316" from "7316F")
-      const digitMatch = q.match(/\d{4}/);
-      const baseCode = digitMatch ? digitMatch[0] : q;
-
-      // We search specs by checking if the compound contains the 4-digit base code
-      // (or matches the SAP code/raw query as a fallback)
+      // 1. Search specs by Material (Column B)
       const specMatches = specData.filter(s => {
-        const cusion = s.cusionCompound.toUpperCase();
-        const tread1 = s.treadCompound1.toUpperCase();
-        const tread2 = s.treadCompound2.toUpperCase();
-
-        if (digitMatch) {
-          return cusion.includes(baseCode) || tread1.includes(baseCode) || tread2.includes(baseCode);
-        }
-
-        return cusion === searchSapCode ||
-               tread1 === searchSapCode ||
-               tread2 === searchSapCode ||
-               cusion === q ||
-               tread1 === q ||
-               tread2 === q;
+        const material = s.material.toUpperCase();
+        return material.includes(q);
       });
 
+      // 2. If spec found, get rubber compounds from J, K, L (cusionCompound, treadCompound1, treadCompound2)
+      let finalSpecMatches = specMatches;
+      let recipeQueries: string[] = [];
+      const compounds = new Set<string>();
+
+      if (finalSpecMatches.length > 0) {
+        console.log('Specs found by Material:', finalSpecMatches);
+        finalSpecMatches.forEach(s => {
+          // Extract 4-digit codes from compound strings (e.g., "DFA0021FL" -> "0021")
+          const extractCode = (str: string) => {
+            const match = str.match(/\d{4}/);
+            return match ? match[0] : str.trim();
+          };
+
+          if (s.cusionCompound?.trim()) compounds.add(extractCode(s.cusionCompound));
+          if (s.treadCompound1?.trim()) compounds.add(extractCode(s.treadCompound1));
+          if (s.treadCompound2?.trim()) compounds.add(extractCode(s.treadCompound2));
+        });
+        
+        if (compounds.size > 0) {
+          recipeQueries = Array.from(compounds);
+        }
+      } else {
+        console.log('No specs found by Material, searching by Raw Material');
+        // Fallback search by Raw Material (Rubber Compound)
+        const rubberMatch = rubberData.find(r => 
+          r.rubberName.toUpperCase().includes(q) || r.sapCode.toUpperCase().includes(q)
+        );
+        const searchSapCode = rubberMatch?.sapCode.toUpperCase() || q;
+
+        // Extract the first 4 digits from the query (e.g., "7316" from "7316F")
+        const digitMatch = q.match(/\d{4}/);
+        const baseCode = digitMatch ? digitMatch[0] : q;
+
+        finalSpecMatches = specData.filter(s => {
+          const cusion = s.cusionCompound.toUpperCase();
+          const tread1 = s.treadCompound1.toUpperCase();
+          const tread2 = s.treadCompound2.toUpperCase();
+
+          if (digitMatch) {
+            return cusion.includes(baseCode) || tread1.includes(baseCode) || tread2.includes(baseCode);
+          }
+
+          return cusion === searchSapCode ||
+                 tread1 === searchSapCode ||
+                 tread2 === searchSapCode ||
+                 cusion === q ||
+                 tread1 === q ||
+                 tread2 === q;
+        });
+        
+        recipeQueries = [q];
+      }
+
+      const matchedCompounds = Array.from(compounds);
+
+      // Fetch recipe data dynamically for the searched rubber name or compounds
+      // We include the original query and all matched compounds to be thorough
+      const recipeQueriesToFetch = [q, ...matchedCompounds];
+      console.log('Fetching recipes for:', recipeQueriesToFetch);
+      
+      const recipe = await fetchRecipeData(recipeQueriesToFetch);
+      
+      // Sort recipes by rubber name to ensure grouping works in the table
+      const sortedRecipe = [...recipe].sort((a, b) => a.rubberName.localeCompare(b.rubberName));
+
       setResult({
-        recipe: recipe,
-        specs: specMatches,
+        recipe: sortedRecipe,
+        specs: finalSpecMatches,
+        matchedCompounds: matchedCompounds,
         hasSearched: true
       });
     } catch (err) {
@@ -203,20 +255,42 @@ export default function App() {
             
             {/* Raw Material Card */}
             <section className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-orange-500" />
-                  <h2 className="text-lg font-bold tracking-tight text-slate-800">Raw Material Details for "{query.toUpperCase()}"</h2>
+              <div className="flex flex-col gap-4 mb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-orange-500" />
+                    <h2 className="text-lg font-bold tracking-tight text-slate-800">Raw Material Details for "{query.toUpperCase()}"</h2>
+                  </div>
+                  {result.recipe.length > 0 && (
+                    <button
+                      onClick={handleCopyRecipe}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                      title="Copy"
+                    >
+                      {copiedRecipe ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                      {copiedRecipe ? 'Copied!' : 'Copy'}
+                    </button>
+                  )}
                 </div>
-                {result.recipe.length > 0 && (
-                  <button
-                    onClick={handleCopyRecipe}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                    title="Copy"
-                  >
-                    {copiedRecipe ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                    {copiedRecipe ? 'Copied!' : 'Copy'}
-                  </button>
+
+                {result.matchedCompounds.length > 0 && (
+                  <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100">
+                    <p className="text-xs font-bold text-orange-700 uppercase tracking-wider mb-2">Rubber Compounds Used in this Spec:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {result.matchedCompounds.map(c => (
+                        <div 
+                          key={c} 
+                          onDoubleClick={() => handleDoubleClick(c)}
+                          className="px-3 py-1 bg-white border border-orange-200 rounded-lg text-sm font-bold text-slate-700 shadow-sm flex items-center gap-2 cursor-pointer hover:border-orange-400 transition-colors select-none"
+                          title="Double-click to search"
+                        >
+                          <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
+                          {c}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-orange-600 mt-2 italic">* Raw material recipes for these compounds are shown in the table below.</p>
+                  </div>
                 )}
               </div>
               
@@ -238,41 +312,63 @@ export default function App() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {(() => {
-                        const rows = [];
-                        for (let i = 0; i < result.recipe.length; i++) {
-                          const item = result.recipe[i];
-                          let rowSpan = 1;
-                          const isFirst = i === 0 || result.recipe[i-1].rubberName !== item.rubberName;
-                          
-                          if (isFirst) {
-                            let j = i + 1;
-                            while (j < result.recipe.length && result.recipe[j].rubberName === item.rubberName) {
-                              rowSpan++;
-                              j++;
-                            }
+                        const groups: { name: string; items: RecipeItem[] }[] = [];
+                        result.recipe.forEach(item => {
+                          if (groups.length === 0 || groups[groups.length - 1].name !== item.rubberName) {
+                            groups.push({ name: item.rubberName, items: [item] });
+                          } else {
+                            groups[groups.length - 1].items.push(item);
                           }
+                        });
 
-                          rows.push(
-                            <tr key={i} className="hover:bg-orange-50/50 transition-colors group">
-                              {isFirst && (
-                                <td 
-                                  rowSpan={rowSpan} 
-                                  className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-slate-800 align-middle text-center border-r border-slate-100 bg-slate-50/30"
-                                >
-                                  {item.rubberName}
+                        return groups.map((group, gIdx) => {
+                          const groupTotal = group.items.reduce((sum, item) => sum + (parseFloat(item.weight) || 0), 0);
+                          return (
+                            <React.Fragment key={gIdx}>
+                              {group.items.map((item, iIdx) => (
+                                <tr key={`${gIdx}-${iIdx}`} className="hover:bg-orange-50/50 transition-colors group">
+                                  {iIdx === 0 && (
+                                    <td 
+                                      rowSpan={group.items.length + 1} 
+                                      onDoubleClick={() => handleDoubleClick(group.name)}
+                                      className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-slate-800 align-middle text-center border-r border-slate-100 bg-slate-50/30 cursor-pointer hover:bg-orange-100/50 transition-colors select-none"
+                                      title="Double-click to search"
+                                    >
+                                      {group.name}
+                                    </td>
+                                  )}
+                                  <td 
+                                    onDoubleClick={() => handleDoubleClick(item.name)}
+                                    className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top cursor-pointer hover:bg-orange-50 transition-colors select-none"
+                                    title="Double-click to search"
+                                  >
+                                    {item.name}
+                                    <div 
+                                      onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDoubleClick(item.code);
+                                      }}
+                                      className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap hover:text-orange-600"
+                                    >
+                                      {item.code}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-orange-600 text-right align-top">
+                                    {item.weight}
+                                  </td>
+                                </tr>
+                              ))}
+                              <tr className="bg-orange-50/30 font-bold border-t border-orange-100">
+                                <td className="py-2 px-2 md:px-4 text-[10px] md:text-xs text-orange-700 text-right uppercase tracking-wider">
+                                  Total Weight
                                 </td>
-                              )}
-                              <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top">
-                                {item.name}
-                                <div className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap">{item.code}</div>
-                              </td>
-                              <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-orange-600 text-right align-top">
-                                {item.weight}
-                              </td>
-                            </tr>
+                                <td className="py-2 px-2 md:px-4 text-xs md:text-sm text-orange-800 text-right">
+                                  {groupTotal.toFixed(3)}
+                                </td>
+                              </tr>
+                            </React.Fragment>
                           );
-                        }
-                        return rows;
+                        });
                       })()}
                     </tbody>
                   </table>
@@ -324,11 +420,27 @@ export default function App() {
                     <tbody className="divide-y divide-slate-100">
                       {result.specs.map((spec, idx) => (
                         <tr key={idx} className="hover:bg-orange-50/50 transition-colors group">
-                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top">
+                          <td 
+                            onDoubleClick={() => handleDoubleClick(spec.alternativeText)}
+                            className="py-3 px-2 md:px-4 text-xs md:text-sm font-medium text-slate-800 align-top cursor-pointer hover:bg-orange-100/30 transition-colors select-none"
+                            title="Double-click to search"
+                          >
                             {spec.alternativeText}
-                            <div className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap">{spec.material}</div>
+                            <div 
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                handleDoubleClick(spec.material);
+                              }}
+                              className="font-mono text-[10px] md:text-xs text-slate-500 mt-0.5 whitespace-nowrap hover:text-orange-600"
+                            >
+                              {spec.material}
+                            </div>
                           </td>
-                          <td className="py-3 px-2 md:px-4 text-xs md:text-sm text-slate-600 align-top">
+                          <td 
+                            onDoubleClick={() => handleDoubleClick(spec.longText)}
+                            className="py-3 px-2 md:px-4 text-xs md:text-sm text-slate-600 align-top cursor-pointer hover:bg-orange-50 transition-colors select-none"
+                            title="Double-click to search"
+                          >
                             {spec.longText}
                           </td>
                         </tr>
