@@ -30,6 +30,7 @@ export default function App() {
 
   const [copiedRecipe, setCopiedRecipe] = useState(false);
   const [copiedSpecs, setCopiedSpecs] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [lang, setLang] = useState<'en' | 'zh'>('zh');
 
@@ -58,6 +59,8 @@ export default function App() {
       longText: "Long Text (Tyre Spec)",
       detailedSpec: "Detailed Specification",
       close: "Close",
+      clearCache: "Clear Cache",
+      refreshing: "Refreshing...",
       rightClickCopy: "Right-click image to copy",
       browserSecurity: "Your browser's security settings prevent direct clipboard access. Please right-click the image below and select \"Copy Image\"."
     },
@@ -67,7 +70,7 @@ export default function App() {
       placeholder: "輸入膠料名稱、材料或 SAP 代碼...",
       search: "搜尋",
       initializing: "資料庫初始化中...",
-      rawMaterialDetails: "原料詳情 (Raw Material Details for)",
+      rawMaterialDetails: "原料詳情",
       copy: "複製",
       copied: "已複製！",
       compoundsUsed: "此規格使用的膠料：",
@@ -82,9 +85,11 @@ export default function App() {
       matches: "個符合",
       match: "個符合",
       noSpecs: "找不到相容的輪胎規格：",
-      longText: "Long Text (Tyre Spec) 詳細規格",
+      longText: "詳細規格",
       detailedSpec: "詳細規格資訊",
       close: "關閉",
+      clearCache: "清除暫存檔案",
+      refreshing: "重新整理中...",
       rightClickCopy: "右鍵點擊圖片進行複製",
       browserSecurity: "您的瀏覽器安全性設定阻止了直接存取剪貼簿。請右鍵點擊下方圖片並選擇「複製圖片」。"
     }
@@ -141,25 +146,34 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [rubber, spec] = await Promise.all([
-          fetchRubberData(),
-          fetchSpecData()
-        ]);
-        setRubberData(rubber);
-        setSpecData(spec);
-        setIsLoading(false);
-      } catch (err) {
-        console.error(err);
-        setError('Failed to load data from Google Sheets. Please ensure the sheet is accessible.');
-        setIsLoading(false);
-      }
-    };
+  const loadData = async (showLoader = true) => {
+    if (showLoader) setIsLoading(true);
+    else setIsRefreshing(true);
     
+    try {
+      const [rubber, spec] = await Promise.all([
+        fetchRubberData(),
+        fetchSpecData()
+      ]);
+      setRubberData(rubber);
+      setSpecData(spec);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to load data from Google Sheets. Please ensure the sheet is accessible.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
     loadData();
   }, []);
+
+  const handleClearCache = () => {
+    loadData(false);
+  };
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -171,76 +185,67 @@ export default function App() {
     setError(null);
     
     try {
-      console.log('Query:', q);
+      console.log('Searching for:', q);
 
-      // 1. Search specs by Material (Column B)
-      const specMatches = specData.filter(s => {
-        const material = s.material.toUpperCase();
-        return material.includes(q);
+      // 1. Initial direct search in specs (by Material, Long Text, or Alternative Text)
+      const directSpecMatches = specData.filter(s => 
+        s.material.toUpperCase().includes(q) || 
+        s.longText.toUpperCase().includes(q) ||
+        s.alternativeText.toUpperCase().includes(q)
+      );
+
+      // 2. Identify initial compounds to fetch recipes for
+      const initialCompounds = new Set<string>();
+      const extractCode = (str: string) => {
+        if (!str) return '';
+        const match = str.match(/\d{4}/);
+        return match ? match[0] : str.trim();
+      };
+
+      directSpecMatches.forEach(s => {
+        if (s.cusionCompound?.trim()) initialCompounds.add(extractCode(s.cusionCompound));
+        if (s.treadCompound1?.trim()) initialCompounds.add(extractCode(s.treadCompound1));
+        if (s.treadCompound2?.trim()) initialCompounds.add(extractCode(s.treadCompound2));
       });
 
-      // 2. If spec found, get rubber compounds from J, K, L (cusionCompound, treadCompound1, treadCompound2)
-      let finalSpecMatches = specMatches;
-      let recipeQueries: string[] = [];
-      const compounds = new Set<string>();
+      // 3. Fetch recipes for the query and any compounds found in direct spec matches
+      const recipeQueries = [q, ...Array.from(initialCompounds)];
+      const recipe = await fetchRecipeData(recipeQueries);
+      
+      // 4. Identify all involved compounds from the recipe results
+      // (This handles the case where searching by material code returns compounds using it)
+      const allInvolvedCompounds = new Set<string>(initialCompounds);
+      recipe.forEach(r => {
+        const code = extractCode(r.rubberName);
+        if (code) allInvolvedCompounds.add(code);
+      });
 
-      if (finalSpecMatches.length > 0) {
-        console.log('Specs found by Material:', finalSpecMatches);
-        finalSpecMatches.forEach(s => {
-          // Extract 4-digit codes from compound strings (e.g., "DFA0021FL" -> "0021")
-          const extractCode = (str: string) => {
-            const match = str.match(/\d{4}/);
-            return match ? match[0] : str.trim();
-          };
-
-          if (s.cusionCompound?.trim()) compounds.add(extractCode(s.cusionCompound));
-          if (s.treadCompound1?.trim()) compounds.add(extractCode(s.treadCompound1));
-          if (s.treadCompound2?.trim()) compounds.add(extractCode(s.treadCompound2));
-        });
-        
-        if (compounds.size > 0) {
-          recipeQueries = Array.from(compounds);
-        }
-      } else {
-        console.log('No specs found by Material, searching by Raw Material');
-        // Fallback search by Raw Material (Rubber Compound)
-        const rubberMatch = rubberData.find(r => 
-          r.rubberName.toUpperCase().includes(q) || r.sapCode.toUpperCase().includes(q)
-        );
-        const searchSapCode = rubberMatch?.sapCode.toUpperCase() || q;
-
-        // Extract the first 4 digits from the query (e.g., "7316" from "7316F")
-        const digitMatch = q.match(/\d{4}/);
-        const baseCode = digitMatch ? digitMatch[0] : q;
-
-        finalSpecMatches = specData.filter(s => {
-          const cusion = s.cusionCompound.toUpperCase();
-          const tread1 = s.treadCompound1.toUpperCase();
-          const tread2 = s.treadCompound2.toUpperCase();
-
-          if (digitMatch) {
-            return cusion.includes(baseCode) || tread1.includes(baseCode) || tread2.includes(baseCode);
-          }
-
-          return cusion === searchSapCode ||
-                 tread1 === searchSapCode ||
-                 tread2 === searchSapCode ||
-                 cusion === q ||
-                 tread1 === q ||
-                 tread2 === q;
-        });
-        
-        recipeQueries = [q];
+      // Also check rubberData for SAP code matches to be thorough
+      const rubberMatch = rubberData.find(r => 
+        r.rubberName.toUpperCase().includes(q) || r.sapCode.toUpperCase().includes(q)
+      );
+      if (rubberMatch) {
+        const code = extractCode(rubberMatch.sapCode);
+        if (code) allInvolvedCompounds.add(code);
       }
 
-      const matchedCompounds = Array.from(compounds);
+      // 5. Final spec filtering: 
+      // Include specs that match directly OR use any of the involved compounds
+      const finalSpecMatches = specData.filter(s => {
+        // Direct match
+        if (s.material.toUpperCase().includes(q) || 
+            s.longText.toUpperCase().includes(q) ||
+            s.alternativeText.toUpperCase().includes(q)) return true;
 
-      // Fetch recipe data dynamically for the searched rubber name or compounds
-      // We include the original query and all matched compounds to be thorough
-      const recipeQueriesToFetch = [q, ...matchedCompounds];
-      console.log('Fetching recipes for:', recipeQueriesToFetch);
-      
-      const recipe = await fetchRecipeData(recipeQueriesToFetch);
+        // Compound match
+        const c = extractCode(s.cusionCompound);
+        const t1 = extractCode(s.treadCompound1);
+        const t2 = extractCode(s.treadCompound2);
+
+        return (c && allInvolvedCompounds.has(c)) || 
+               (t1 && allInvolvedCompounds.has(t1)) || 
+               (t2 && allInvolvedCompounds.has(t2));
+      });
       
       // Sort recipes by rubber name to ensure grouping works in the table
       const sortedRecipe = [...recipe].sort((a, b) => a.rubberName.localeCompare(b.rubberName));
@@ -248,12 +253,12 @@ export default function App() {
       setResult({
         recipe: sortedRecipe,
         specs: finalSpecMatches,
-        matchedCompounds: matchedCompounds,
+        matchedCompounds: Array.from(allInvolvedCompounds),
         hasSearched: true
       });
     } catch (err) {
       console.error(err);
-      setError('Failed to fetch recipe data.');
+      setError('Failed to fetch data.');
     } finally {
       setIsSearching(false);
     }
@@ -269,54 +274,72 @@ export default function App() {
   }
 
   // Find if the search query matches a material code to show its long text
-  const matchedSpecForHeader = result.specs.find(s => s.material.toUpperCase() === query.trim().toUpperCase());
+  const trimmedQuery = query.trim().toUpperCase();
+  const matchedSpecForHeader = result.specs.find(s => 
+    s.material.toUpperCase() === trimmedQuery || 
+    s.longText.toUpperCase() === trimmedQuery ||
+    s.alternativeText.toUpperCase() === trimmedQuery
+  ) || (result.specs.length === 1 ? result.specs[0] : null);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 p-4 md:p-8">
       <div className="max-w-5xl mx-auto space-y-8">
         
         {/* Header & Search */}
-        <header className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border-t-4 border-orange-500 relative">
-          <div className="absolute top-6 right-6 flex items-center gap-2">
-            <button 
-              onClick={() => setLang('en')}
-              className={`px-2 py-1 text-xs font-bold rounded ${lang === 'en' ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-500'}`}
-            >
-              EN
-            </button>
-            <button 
-              onClick={() => setLang('zh')}
-              className={`px-2 py-1 text-xs font-bold rounded ${lang === 'zh' ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-500'}`}
-            >
-              中文
-            </button>
+        <header className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border-t-4 border-orange-500">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center shrink-0">
+                <Database className="w-6 h-6 text-orange-600" />
+              </div>
+              <div>
+                <h1 className="text-lg md:text-2xl font-bold tracking-tight text-slate-900">{currentT.title}</h1>
+                <p className="text-sm text-slate-500 font-medium">{currentT.subtitle}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2 self-end md:self-auto">
+              <button 
+                onClick={handleClearCache}
+                disabled={isRefreshing}
+                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isRefreshing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
+                {isRefreshing ? currentT.refreshing : currentT.clearCache}
+              </button>
+              <div className="w-px h-4 bg-slate-200 mx-1"></div>
+              <button 
+                onClick={() => setLang('en')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-orange-500 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+              >
+                English
+              </button>
+              <button 
+                onClick={() => setLang('zh')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-orange-500 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+              >
+                繁體中文
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center">
-              <Database className="w-6 h-6 text-orange-600" />
+          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={currentT.placeholder}
+                className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-lg"
+              />
             </div>
-            <div>
-              <h1 className="text-lg md:text-2xl font-bold tracking-tight text-slate-900">{currentT.title}</h1>
-              <p className="text-sm text-slate-500 font-medium">{currentT.subtitle}</p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSearch} className="relative flex items-center">
-            <Search className="absolute left-4 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={currentT.placeholder}
-              className="w-full pl-12 pr-32 py-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-lg"
-            />
             <button
               type="submit"
               disabled={!query.trim() || isSearching}
-              className="absolute right-2 px-6 py-2 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 transition-colors flex items-center gap-2 shadow-sm"
+              className="px-8 py-4 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-md active:scale-95 whitespace-nowrap"
             >
-              {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : currentT.search}
+              {isSearching ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Search className="w-5 h-5" /> {currentT.search}</>}
             </button>
           </form>
           

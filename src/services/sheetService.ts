@@ -66,8 +66,12 @@ export async function fetchRecipeData(query: string | string[]): Promise<RecipeI
           return;
         }
 
-        const materialNames = rows[1];
-        const materialCodes = rows[2];
+        // Search for material names and codes in the first few rows
+        // Usually rows[1] is names, rows[2] is codes
+        const materialNames = rows[1] || [];
+        const materialCodes = rows[2] || [];
+        const headerRow0 = rows[0] || [];
+        
         const queries = (Array.isArray(query) ? query : [query])
           .map(q => q.trim().toUpperCase())
           .filter(q => q.length > 0);
@@ -77,51 +81,62 @@ export async function fetchRecipeData(query: string | string[]): Promise<RecipeI
           return;
         }
 
-        // Find all columns that match the query (for reverse search)
+        // Find all columns that match the query (for material search)
         const matchingColIndices: number[] = [];
-        for (let i = 5; i < materialNames.length; i++) {
+        const maxCols = Math.max(materialNames.length, materialCodes.length, headerRow0.length);
+        
+        for (let i = 0; i < maxCols; i++) {
           const mName = (materialNames[i] || '').toUpperCase();
           const mCode = (materialCodes[i] || '').toUpperCase();
-          if (queries.some(q => mName.includes(q) || mCode.includes(q))) {
+          const h0 = (headerRow0[i] || '').toUpperCase();
+          
+          if (queries.some(q => mName.includes(q) || mCode.includes(q) || h0.includes(q))) {
             matchingColIndices.push(i);
           }
         }
 
         const recipeItems: RecipeItem[] = [];
+        const compoundsToIncludeFull = new Set<string>();
 
-        // Iterate through all valid rows (Rubber Compounds)
+        // First pass: Find which compounds match the query directly OR use a matching material
         for (let r = 3; r < rows.length; r++) {
           const row = rows[r];
-          const isV = row[0] === 'V' || row[0] === 'Ⅴ' || row[0] === 'v';
+          const isV = row[0]?.toString().toUpperCase().trim() === 'V' || 
+                     row[0]?.toString().trim() === 'Ⅴ';
           if (!isV) continue;
 
           const rubberName = (row[2] || '').trim();
           const rubberNameUpper = rubberName.toUpperCase();
           
-          const isRubberMatch = queries.some(q => rubberNameUpper.includes(q) || rubberNameUpper === q);
+          const isRubberMatch = queries.some(q => rubberNameUpper.includes(q));
 
-          // If the rubber compound matches the query, include ALL its materials
           if (isRubberMatch) {
+            compoundsToIncludeFull.add(rubberName);
+          } else {
+            // Check if any matching material is used in this compound
+            for (const i of matchingColIndices) {
+              const weight = row[i]?.trim();
+              if (weight && weight !== '' && weight !== '0') {
+                compoundsToIncludeFull.add(rubberName);
+                break;
+              }
+            }
+          }
+        }
+
+        // Second pass: Include the FULL recipe for all identified compounds
+        for (let r = 3; r < rows.length; r++) {
+          const row = rows[r];
+          const rubberName = (row[2] || '').trim();
+          
+          if (compoundsToIncludeFull.has(rubberName)) {
+            // Start from column 5 (where materials usually start)
             for (let i = 5; i < row.length; i++) {
               const weight = row[i]?.trim();
               if (weight && weight !== '' && weight !== '0') {
                 recipeItems.push({
                   rubberName: rubberName,
-                  name: materialNames[i]?.trim() || 'Unknown',
-                  code: materialCodes[i]?.trim() || 'Unknown',
-                  weight: weight
-                });
-              }
-            }
-          } else if (matchingColIndices.length > 0) {
-            // If the rubber compound doesn't match, but some materials match the query,
-            // include only the matching materials for this rubber compound
-            for (const i of matchingColIndices) {
-              const weight = row[i]?.trim();
-              if (weight && weight !== '' && weight !== '0') {
-                recipeItems.push({
-                  rubberName: rubberName,
-                  name: materialNames[i]?.trim() || 'Unknown',
+                  name: materialNames[i]?.trim() || headerRow0[i]?.trim() || 'Unknown',
                   code: materialCodes[i]?.trim() || 'Unknown',
                   weight: weight
                 });

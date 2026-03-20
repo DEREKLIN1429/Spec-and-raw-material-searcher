@@ -1,5 +1,5 @@
 {
-  "name": "Spec and raw material searcher規格和原料搜尋器",
+  "name": "Spec and raw material searcher 1.0",
   "description": "Search rubber names or SAP codes to find raw materials and compatible tyre specs from Google Sheets.",
   "requestFramePermissions": []
 }
