@@ -30,6 +30,7 @@ export default function App() {
 
   const [copiedRecipe, setCopiedRecipe] = useState(false);
   const [copiedSpecs, setCopiedSpecs] = useState(false);
+  const [copiedGroup, setCopiedGroup] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [lang, setLang] = useState<'en' | 'zh'>('zh');
@@ -42,7 +43,7 @@ export default function App() {
       search: "Search",
       initializing: "Initializing Database...",
       rawMaterialDetails: "Raw Material Details for",
-      copy: "Copy",
+      copy: "Copy Image",
       copied: "Copied!",
       compoundsUsed: "Rubber Compounds Used in this Spec:",
       doubleClickInfo: "* Raw material recipes for these compounds are shown in the table below.",
@@ -71,7 +72,7 @@ export default function App() {
       search: "搜尋",
       initializing: "資料庫初始化中...",
       rawMaterialDetails: "原料詳情",
-      copy: "複製",
+      copy: "複製圖片",
       copied: "已複製！",
       compoundsUsed: "此規格使用的膠料：",
       doubleClickInfo: "* 這些膠料的原料配方顯示在下表中。",
@@ -107,8 +108,19 @@ export default function App() {
   const handleCopyRecipe = async () => {
     if (!result.recipe.length || !recipeTableRef.current) return;
     try {
-      const blob = await toBlob(recipeTableRef.current, { backgroundColor: '#ffffff', pixelRatio: 2 });
-      if (!blob) return;
+      // Use higher pixel ratio and cacheBust to prevent blank images
+      const blob = await toBlob(recipeTableRef.current, { 
+        backgroundColor: '#ffffff', 
+        pixelRatio: 3,
+        cacheBust: true,
+        style: {
+          transform: 'scale(1)', // Reset any transforms
+          borderRadius: '0' // Remove border radius for cleaner capture
+        }
+      });
+      
+      if (!blob) throw new Error('Blob generation failed');
+
       try {
         await navigator.clipboard.write([
           new ClipboardItem({ 'image/png': blob })
@@ -117,19 +129,138 @@ export default function App() {
         setTimeout(() => setCopiedRecipe(false), 2000);
       } catch (clipboardError) {
         console.warn('Clipboard write failed, showing preview modal:', clipboardError);
-        const dataUrl = await toPng(recipeTableRef.current, { backgroundColor: '#ffffff', pixelRatio: 2 });
+        const dataUrl = await toPng(recipeTableRef.current, { 
+          backgroundColor: '#ffffff', 
+          pixelRatio: 2,
+          cacheBust: true
+        });
         setPreviewImage(dataUrl);
       }
     } catch (err) {
       console.error('Failed to generate image:', err);
+      setError('Failed to generate image. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
+  const handleCopyGroupImage = async (groupName: string, items: RecipeItem[]) => {
+    // Create a temporary container to render the group table
+    const container = document.createElement('div');
+    // Use a more robust way to hide the element while keeping it in the render tree
+    container.style.position = 'absolute';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.zIndex = '-1000';
+    container.style.opacity = '0';
+    container.style.pointerEvents = 'none';
+    container.style.width = '700px'; 
+    container.style.backgroundColor = '#ffffff';
+    
+    // Ensure it's in the document
+    document.body.appendChild(container);
+
+    const total = items.reduce((sum, item) => sum + (parseFloat(item.weight) || 0), 0);
+    const headers = lang === 'zh' 
+      ? { rubber: '膠料名稱', material: '原料名稱及代碼', weight: '重量', total: '總重量' }
+      : { rubber: 'Rubber Compound', material: 'Material Name & Code', weight: 'Weight', total: 'Total Weight' };
+
+    // Use a wrapper with explicit background and padding to ensure capture
+    container.innerHTML = `
+      <div id="capture-target" style="font-family: 'Inter', sans-serif; color: #1e293b; background-color: #ffffff; padding: 30px; width: 700px; box-sizing: border-box;">
+        <div style="margin-bottom: 24px; text-align: center; border-bottom: 3px solid #f97316; padding-bottom: 16px;">
+          <h1 style="margin: 0; font-size: 26px; color: #0f172a; font-weight: 900; letter-spacing: -0.025em; text-transform: uppercase;">MAXXIS RUBBER INDIA</h1>
+          <div style="font-size: 14px; color: #64748b; margin-top: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Rubber Compound Recipe Details</div>
+        </div>
+        
+        <table style="width: 100%; border-collapse: collapse; font-size: 15px; border: 2px solid #e2e8f0; table-layout: fixed;">
+          <thead>
+            <tr style="background-color: #f8fafc;">
+              <th style="padding: 16px 12px; text-align: center; font-weight: 800; color: #334155; border: 1px solid #e2e8f0; width: 30%;">${headers.rubber}</th>
+              <th style="padding: 16px 12px; text-align: left; font-weight: 800; color: #334155; border: 1px solid #e2e8f0; width: 45%;">${headers.material}</th>
+              <th style="padding: 16px 12px; text-align: right; font-weight: 800; color: #334155; border: 1px solid #e2e8f0; width: 25%;">${headers.weight}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map((item, idx) => `
+              <tr>
+                ${idx === 0 ? `
+                  <td rowspan="${items.length}" style="padding: 20px 12px; font-weight: 900; color: #0f172a; background-color: #f1f5f9; border: 1px solid #e2e8f0; vertical-align: middle; text-align: center; font-size: 18px; word-wrap: break-word;">
+                    ${groupName}
+                  </td>
+                ` : ''}
+                <td style="padding: 14px 12px; border: 1px solid #e2e8f0; vertical-align: top;">
+                  <div style="font-weight: 700; color: #1e293b; font-size: 15px; line-height: 1.4;">${item.name}</div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #64748b; margin-top: 4px; font-weight: 500;">${item.code}</div>
+                </td>
+                <td style="padding: 14px 12px; text-align: right; font-weight: 800; color: #ea580c; border: 1px solid #e2e8f0; font-size: 16px; vertical-align: top;">${item.weight}</td>
+              </tr>
+            `).join('')}
+            <tr style="background-color: #fff7ed; font-weight: 900;">
+              <td colspan="2" style="padding: 16px 12px; text-align: right; color: #c2410c; border: 1px solid #e2e8f0; font-size: 16px;">${headers.total}</td>
+              <td style="padding: 16px 12px; text-align: right; color: #9a3412; border: 1px solid #e2e8f0; font-size: 18px;">${total.toFixed(3)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 24px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: right; font-style: italic; font-weight: 500;">
+          Generated by Maxxis Rubber India App • ${new Date().toLocaleString()}
+        </div>
+      </div>
+    `;
+
+    try {
+      // Wait for multiple frames to ensure layout and styles are applied
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const target = container.firstElementChild as HTMLElement;
+      const blob = await toBlob(target, { 
+        backgroundColor: '#ffffff', 
+        pixelRatio: 3, // Higher quality
+        cacheBust: true 
+      });
+      
+      if (!blob) {
+        throw new Error('Blob generation failed');
+      }
+
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob })
+        ]);
+        setCopiedGroup(groupName);
+        setTimeout(() => setCopiedGroup(null), 2000);
+      } catch (clipboardError) {
+        console.warn('Clipboard write failed, showing preview modal:', clipboardError);
+        const dataUrl = await toPng(target, { backgroundColor: '#ffffff', pixelRatio: 2 });
+        setPreviewImage(dataUrl);
+      }
+    } catch (err) {
+      console.error('Failed to generate group image:', err);
+      // Fallback: try to generate a simple text copy if image fails completely
+      setError('Failed to generate image. Please try again or use a different browser.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      if (document.body.contains(container)) {
+        document.body.removeChild(container);
+      }
     }
   };
 
   const handleCopySpecs = async () => {
     if (!result.specs.length || !specsTableRef.current) return;
     try {
-      const blob = await toBlob(specsTableRef.current, { backgroundColor: '#ffffff', pixelRatio: 2 });
-      if (!blob) return;
+      const blob = await toBlob(specsTableRef.current, { 
+        backgroundColor: '#ffffff', 
+        pixelRatio: 3,
+        cacheBust: true,
+        style: {
+          transform: 'scale(1)',
+          borderRadius: '0'
+        }
+      });
+      
+      if (!blob) throw new Error('Blob generation failed');
+
       try {
         await navigator.clipboard.write([
           new ClipboardItem({ 'image/png': blob })
@@ -138,11 +269,17 @@ export default function App() {
         setTimeout(() => setCopiedSpecs(false), 2000);
       } catch (clipboardError) {
         console.warn('Clipboard write failed, showing preview modal:', clipboardError);
-        const dataUrl = await toPng(specsTableRef.current, { backgroundColor: '#ffffff', pixelRatio: 2 });
+        const dataUrl = await toPng(specsTableRef.current, { 
+          backgroundColor: '#ffffff', 
+          pixelRatio: 2,
+          cacheBust: true
+        });
         setPreviewImage(dataUrl);
       }
     } catch (err) {
       console.error('Failed to generate image:', err);
+      setError('Failed to generate image. Please try again.');
+      setTimeout(() => setError(null), 3000);
     }
   };
 
@@ -390,7 +527,7 @@ export default function App() {
                       className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                       title={currentT.copy}
                     >
-                      {copiedRecipe ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                      {copiedRecipe ? <Check className="w-4 h-4 text-emerald-600" /> : <ImageIcon className="w-4 h-4" />}
                       {copiedRecipe ? currentT.copied : currentT.copy}
                     </button>
                   )}
@@ -400,17 +537,36 @@ export default function App() {
                   <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100">
                     <p className="text-xs font-bold text-orange-700 uppercase tracking-wider mb-2">{currentT.compoundsUsed}</p>
                     <div className="flex flex-wrap gap-2">
-                      {result.matchedCompounds.map(c => (
-                        <div 
-                          key={c} 
-                          onDoubleClick={() => handleDoubleClick(c)}
-                          className="px-3 py-1 bg-white border border-orange-200 rounded-lg text-sm font-bold text-slate-700 shadow-sm flex items-center gap-2 cursor-pointer hover:border-orange-400 transition-colors select-none"
-                          title={currentT.doubleClickSearch}
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
-                          {c}
-                        </div>
-                      ))}
+                      {result.matchedCompounds.map(c => {
+                        const compoundItems = result.recipe.filter(item => item.rubberName === c);
+                        return (
+                          <div 
+                            key={c} 
+                            className="px-3 py-1 bg-white border border-orange-200 rounded-lg text-sm font-bold text-slate-700 shadow-sm flex items-center gap-2 group transition-all hover:border-orange-400"
+                          >
+                            <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
+                            <span 
+                              className="cursor-pointer hover:text-orange-600 select-none"
+                              onDoubleClick={() => handleDoubleClick(c)}
+                              title={currentT.doubleClickSearch}
+                            >
+                              {c}
+                            </span>
+                            {compoundItems.length > 0 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCopyGroupImage(c, compoundItems);
+                                }}
+                                className="ml-1 p-1 rounded hover:bg-orange-100 text-slate-400 hover:text-orange-600 transition-colors"
+                                title={currentT.copy}
+                              >
+                                {copiedGroup === c ? <Check className="w-3 h-3 text-emerald-600" /> : <ImageIcon className="w-3 h-3" />}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                     <p className="text-[10px] text-orange-600 mt-2 italic">{currentT.doubleClickInfo}</p>
                   </div>
@@ -453,11 +609,24 @@ export default function App() {
                                   {iIdx === 0 && (
                                     <td 
                                       rowSpan={group.items.length + 1} 
-                                      onDoubleClick={() => handleDoubleClick(group.name)}
-                                      className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-slate-800 align-middle text-center border-r border-slate-100 bg-slate-50/30 cursor-pointer hover:bg-orange-100/50 transition-colors select-none"
-                                      title={currentT.doubleClickSearch}
+                                      className="py-3 px-2 md:px-4 text-xs md:text-sm font-bold text-slate-800 align-middle text-center border-r border-slate-100 bg-slate-50/30 transition-colors"
                                     >
-                                      {group.name}
+                                      <div className="flex flex-col items-center gap-2">
+                                        <span 
+                                          className="cursor-pointer hover:text-orange-600 select-none"
+                                          onDoubleClick={() => handleDoubleClick(group.name)}
+                                          title={currentT.doubleClickSearch}
+                                        >
+                                          {group.name}
+                                        </span>
+                                        <button
+                                          onClick={() => handleCopyGroupImage(group.name, group.items)}
+                                          className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-400 hover:text-orange-500 hover:border-orange-200 transition-all shadow-sm"
+                                          title={currentT.copy}
+                                        >
+                                          {copiedGroup === group.name ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <ImageIcon className="w-3.5 h-3.5" />}
+                                        </button>
+                                      </div>
                                     </td>
                                   )}
                                   <td 
