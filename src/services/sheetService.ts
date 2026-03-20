@@ -8,6 +8,9 @@ export interface RubberData {
   rubberName: string;
   sapCode: string;
   rawMaterial: string;
+  rubberNameJ: string;
+  rubberNameK: string;
+  rubberNameL: string;
 }
 
 export interface RecipeItem {
@@ -37,6 +40,9 @@ export async function fetchRubberData(): Promise<RubberData[]> {
           rubberName: row['種類類別']?.trim() || '',
           sapCode: row['SAP ON']?.trim() || '',
           rawMaterial: row['SPC']?.trim() || '',
+          rubberNameJ: row['_6']?.trim() || '',
+          rubberNameK: row['_7']?.trim() || '',
+          rubberNameL: row['_8']?.trim() || '',
         })).filter((item) => item.rubberName || item.sapCode);
         resolve(data);
       },
@@ -47,7 +53,7 @@ export async function fetchRubberData(): Promise<RubberData[]> {
   });
 }
 
-export async function fetchRecipeData(query: string): Promise<RecipeItem[]> {
+export async function fetchRecipeData(query: string | string[]): Promise<RecipeItem[]> {
   return new Promise((resolve, reject) => {
     Papa.parse(RECIPE_URL, {
       download: true,
@@ -62,14 +68,21 @@ export async function fetchRecipeData(query: string): Promise<RecipeItem[]> {
 
         const materialNames = rows[1];
         const materialCodes = rows[2];
-        const q = query.trim().toUpperCase();
+        const queries = (Array.isArray(query) ? query : [query])
+          .map(q => q.trim().toUpperCase())
+          .filter(q => q.length > 0);
         
+        if (queries.length === 0) {
+          resolve([]);
+          return;
+        }
+
         // Find all columns that match the query (for reverse search)
         const matchingColIndices: number[] = [];
         for (let i = 5; i < materialNames.length; i++) {
           const mName = (materialNames[i] || '').toUpperCase();
           const mCode = (materialCodes[i] || '').toUpperCase();
-          if (mName.includes(q) || mCode.includes(q)) {
+          if (queries.some(q => mName.includes(q) || mCode.includes(q))) {
             matchingColIndices.push(i);
           }
         }
@@ -85,7 +98,7 @@ export async function fetchRecipeData(query: string): Promise<RecipeItem[]> {
           const rubberName = (row[2] || '').trim();
           const rubberNameUpper = rubberName.toUpperCase();
           
-          const isRubberMatch = rubberNameUpper.includes(q);
+          const isRubberMatch = queries.some(q => rubberNameUpper.includes(q) || rubberNameUpper === q);
 
           // If the rubber compound matches the query, include ALL its materials
           if (isRubberMatch) {
@@ -126,14 +139,16 @@ export async function fetchRecipeData(query: string): Promise<RecipeItem[]> {
   });
 }
 
+
 export async function fetchSpecData(): Promise<SpecData[]> {
+  const response = await fetch(SPEC_URL);
+  const data = await response.text();
   return new Promise((resolve, reject) => {
-    Papa.parse(SPEC_URL, {
-      download: true,
+    Papa.parse(data, {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
-        const data = results.data.map((row: any) => ({
+        const parsedData = results.data.map((row: any) => ({
           material: row['Material']?.trim() || '',
           alternativeText: row['Alternative Text']?.trim() || '',
           longText: row['Long text']?.trim() || '',
@@ -141,7 +156,7 @@ export async function fetchSpecData(): Promise<SpecData[]> {
           treadCompound1: row['Tread Compound head 1']?.trim() || '',
           treadCompound2: row['Tread compound haed 2']?.trim() || '',
         })).filter((item) => item.material || item.alternativeText);
-        resolve(data);
+        resolve(parsedData);
       },
       error: (error) => {
         reject(error);
